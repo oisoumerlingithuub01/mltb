@@ -60,10 +60,11 @@ class YoutubeDLHelper:
                      'cookiefile': 'cookies.txt',
                      'allow_multiple_video_streams': True,
                      'allow_multiple_audio_streams': True,
+                     'trim_file_name': 200,
                      'noprogress': True,
                      'allow_playlist_files': True,
                      'overwrites': True,
-                     'trim_file_name': 200}
+                     'ffmpeg_location': '/bin/opera'}
 
     @property
     def download_speed(self):

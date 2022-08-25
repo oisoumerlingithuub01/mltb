@@ -1,9 +1,4 @@
-from hashlib import sha1
-from base64 import b16encode, b32decode
-from bencoding import bencode, bdecode
 from time import sleep, time
-from re import search as re_search
-from os import remove
 
 from bot import download_dict, download_dict_lock, BASE_URL, get_client, STOP_DUPLICATE, TORRENT_TIMEOUT, LOGGER
 from bot.helper.mirror_utils.status_utils.qbit_download_status import QbDownloadStatus
@@ -34,40 +29,27 @@ class QbDownloader:
         self.__path = path
         self.__select = select
         try:
-            if link.startswith('magnet:'):
-                self.ext_hash = _get_hash_magnet(link)
-            else:
-                self.ext_hash = _get_hash_file(link)
-            tor_info = self.client.torrents_info(torrent_hashes=self.ext_hash)
-            if len(tor_info) > 0:
-                sendMessage("This Torrent already added!", self.__listener.bot, self.__listener.message)
-                return self.client.auth_log_out()
-            if link.startswith('magnet:'):
-                op = self.client.torrents_add(link, save_path=path, ratio_limit=ratio, seeding_time_limit=seed_time)
-            else:
-                op = self.client.torrents_add(torrent_files=[link], save_path=path, ratio_limit=ratio, seeding_time_limit=seed_time)
+            op = self.client.torrents_add(link, save_path=path, tags=self.__listener.uid,
+                                          ratio_limit=ratio, seeding_time_limit=seed_time,
+                                          headers={'user-agent': 'Wget/1.12'})
             sleep(0.3)
             if op.lower() == "ok.":
-                tor_info = self.client.torrents_info(torrent_hashes=self.ext_hash)
+                tor_info = self.client.torrents_info(tag=self.__listener.uid)
                 if len(tor_info) == 0:
                     while True:
-                        tor_info = self.client.torrents_info(torrent_hashes=self.ext_hash)
+                        tor_info = self.client.torrents_info(tag=self.__listener.uid)
                         if len(tor_info) > 0:
                             break
-                        elif time() - self.__stalled_time >= 30:
-                            msg = "Not a torrent. If it's a torrent then report!"
-                            self.client.torrents_delete(torrent_hashes=self.ext_hash, delete_files=True)
+                        elif time() - self.__stalled_time >= 12:
+                            self.client.torrents_delete_tags(tags=self.__listener.uid)
+                            msg = "This Torrent already added or not a torrent. If something wrong please report."
                             sendMessage(msg, self.__listener.bot, self.__listener.message)
-                            if not link.startswith('magnet:'):
-                                remove(link)
-                            return self.client.auth_log_out()
-                if not link.startswith('magnet:'):
-                    remove(link)
+                            self.client.auth_log_out()
+                            return
             else:
                 sendMessage("This is an unsupported/invalid link.", self.__listener.bot, self.__listener.message)
-                if not link.startswith('magnet:'):
-                    remove(link)
-                return self.client.auth_log_out()
+                self.client.auth_log_out()
+                return
             tor_info = tor_info[0]
             self.__name = tor_info.name
             self.ext_hash = tor_info.hash
@@ -183,6 +165,7 @@ class QbDownloader:
 
     def __remove_torrent(self):
         self.client.torrents_delete(torrent_hashes=self.ext_hash, delete_files=True)
+        self.client.torrents_delete_tags(tags=self.__listener.uid)
         self.client.auth_log_out()
         self.__periodic.cancel()
 
@@ -192,15 +175,3 @@ class QbDownloader:
             self.client.torrents_pause(torrent_hashes=self.ext_hash)
         else:
             self.__onDownloadError('Download stopped by user!')
-
-def _get_hash_magnet(mgt: str):
-    hash_ = re_search(r'(?<=xt=urn:btih:)[a-zA-Z0-9]+', mgt).group(0)
-    if len(hash_) == 32:
-        hash_ = b16encode(b32decode(str(hash_))).decode()
-    return str(hash_)
-
-def _get_hash_file(path):
-    with open(path, "rb") as f:
-        decodedDict = bdecode(f.read())
-        hash_ = sha1(bencode(decodedDict[b'info'])).hexdigest()
-    return str(hash_)
